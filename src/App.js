@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
 import Select from 'react-select';
 
-const flaskApiUrl = "https://b4bb222673a5.ngrok.app";
+const flaskApiUrl = "https://33150fa128fe.ngrok.app";
 const cameraOptions = [
   { label: 'Camera 1', value: 'camera1' },
   { label: 'Camera 2', value: 'camera2' },
