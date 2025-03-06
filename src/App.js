@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { io } from "socket.io-client";
+import React, { useState, useEffect, useCallback } from "react";
 import Select from 'react-select';
 
-const flaskApiUrl = "https://1bf333a4806b.ngrok.app";
+const flaskApiUrl = "https://immune-crow-vastly.ngrok-free.app";
+// const flaskApiUrl = "http://localhost:8765";
 const cameraOptions = [
   { label: 'Camera 1', value: 'camera1' },
   { label: 'Camera 2', value: 'camera2' },
@@ -13,54 +13,8 @@ function App() {
   const [videoUrl, setVideoUrl] = useState('');
   const [direction, setDirection] = useState('');
   const [selectedCamera, setSelectedCamera] = useState(cameraOptions[0]);
-  const [isConnectedToRaspi, setIsConnectedToRaspi] = useState(false);
-  const [isCameraInitialized, setIsCameraInitialized] = useState(false);
 
-  // Using useRef to keep a persistent reference to the socket instance
-  const socketIO = useRef(io(flaskApiUrl, { autoConnect: false })).current;
-
-  useEffect(() => {
-    socketIO.on('connected', (response) => {
-      console.log('Connected: ', response);
-      setIsConnectedToRaspi(response?.isConnected);
-      socketIO.emit('initializeCameras');
-    });
-
-    socketIO.on('camera_initialized', (response) => {
-      console.log('Camera Initialized: ', response);
-      setIsCameraInitialized(response?.cameraInitialized);
-    });
-
-    socketIO.on('arduino_message', (message) => {
-      console.log('Message from arduino: ', message)
-    })
-
-    return () => {
-      socketIO.off('connected');
-      socketIO.off('camera_initialized');
-      socketIO.off('arduino_message')
-    };
-  }, [socketIO]);
-
-  // Function to handle socket connection
-  const handleConnection = useCallback(() => {
-    if (!isConnectedToRaspi) {
-      console.log("Connecting to Raspberry Pi");
-      socketIO.connect(); // Connect to the server before emitting events
-
-      // Once connected, emit the "start" event
-      socketIO.on('connect', () => {
-        socketIO.emit('start');
-      });
-    } else {
-      console.log("Disconnecting");
-      socketIO.emit('end');
-    }
-  }, [isConnectedToRaspi, socketIO]);
-
-  // Handle key press to send movement commands
-  const handleKeyDown = useCallback((event) => {
-    // Map keys to directions
+  const handleKeyDown = useCallback(async (event) => {
     const keyToDirection = {
       'a': 'a', 'A': 'a', 'ArrowLeft': 'a',
       'd': 'd', 'D': 'd', 'ArrowRight': 'd',
@@ -68,40 +22,41 @@ function App() {
       's': 's', 'S': 's', 'ArrowDown': 's'
     };
 
-    // Determine the direction from the pressed key
     const direction = keyToDirection[event.key];
     if (direction) {
       console.log(`Key pressed: ${event.key}, Direction: ${direction}`);
+      setDirection(direction);
 
-      // Emit move event to socket server
-      if (socketIO.connected) {
-        socketIO.emit('move', direction);
-        setDirection(direction);
-      } else {
-        console.log("Socket is not connected, cannot emit 'move' event");
+      try {
+        const response = await fetch(`${flaskApiUrl}/move/${direction}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log(`Move ${direction} response:`, data);
+      } catch (error) {
+        console.error('Error moving:', error);
       }
     }
-  }, [socketIO]);
+  }, []);
 
-  // Add event listener for keydown
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // Update video URL once cameras are initialized
   useEffect(() => {
-    console.log("Effect triggered");
-    console.log("isConnectedToRaspi:", isConnectedToRaspi);
-    console.log("isCameraInitialized:", isCameraInitialized);
-    console.log("selectedCamera:", selectedCamera);
-
-    if (isConnectedToRaspi && isCameraInitialized) {
-      const cameraUrl = `${flaskApiUrl}/video/${selectedCamera.value}?timestamp=${new Date().getTime()}`;
-      console.log("Streaming video from ", cameraUrl);
-      setVideoUrl(cameraUrl);
-    }
-  }, [isConnectedToRaspi, isCameraInitialized, selectedCamera]);
+    const cameraUrl = `${flaskApiUrl}/video/${selectedCamera.value}?timestamp=${new Date().getTime()}`;
+    console.log("Streaming video from ", cameraUrl);
+    setVideoUrl(cameraUrl);
+  }, [selectedCamera]);
 
   return (
     <div style={styles.container}>
@@ -120,30 +75,19 @@ function App() {
               value={selectedCamera}
               options={cameraOptions}
             />
-            <button onClick={handleConnection} style={styles.connectButton}>
-              {isConnectedToRaspi ? "Disconnect" : "Connect"}
-            </button>
           </div>
         </div>
-
-        <div style={{
-          backgroundColor: 'teal',
-          alignItems: 'center',
-          display: 'flex',
-          flexDirection: 'column'
-        }}> <p>
-            Bin Status</p>
-          <p> Full </p> </div>
       </div>
 
       <div style={styles.videoContainer}>
-        <img key={videoUrl} src={videoUrl} alt={`Stream from ${selectedCamera.label}`} style={styles.video} />
+        {videoUrl ? <img key={videoUrl} src={videoUrl} alt={`Stream from ${selectedCamera.label}`} style={styles.video} /> : 
+        <>Select a camera to start streaming</>}
       </div>
 
       <div style={styles.controls}>
         <p>Use the arrow keys or WASD keys to move</p>
         <div style={styles.directionContainer}>
-          <div style={{ ...styles.direction, ...styles.north }}>{direction === 'forward' && direction}</div>
+          <div style={{ ...styles.direction, ...styles.north }} onClick={() => console.log('MOVING FORWARD')}>{direction === 'forward' && direction}</div>
           <div style={{ ...styles.direction, ...styles.east }}>{direction === 'right' && direction}</div>
           <div style={{ ...styles.direction, ...styles.south }}>{direction === 'backward' && direction}</div>
           <div style={{ ...styles.direction, ...styles.west }}>{direction === 'left' && direction}</div>
@@ -168,14 +112,6 @@ const styles = {
   selectionContainer: {
     display: 'flex',
     gap: '10px',
-  },
-  connectButton: {
-    borderRadius: '6px',
-    cursor: 'pointer',
-    padding: '5px 10px',
-    backgroundColor: '#4CAF50',
-    color: 'white',
-    border: 'none',
   },
   videoContainer: {
     flex: 0.75,
